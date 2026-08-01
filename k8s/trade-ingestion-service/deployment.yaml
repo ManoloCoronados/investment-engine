@@ -1,0 +1,57 @@
+# deployment.yaml
+# Define QUÉ corre y CÓMO — cuántas réplicas, qué imagen, cómo verificar salud
+# El Deployment garantiza que siempre haya N réplicas corriendo
+apiVersion: apps/v1  # API de nivel superior — gestiona grupos de Pods
+kind: Deployment
+metadata:
+  name: trade-ingestion-service
+  namespace: default
+spec:
+  replicas: 3 #Copias de el pod. el servidor nunca se debe caer, si un pod Muere su replica lo reemplaza al instante
+  selector:
+    matchLabels:
+      app: trade-ingestion-service  # el Deployment solo gestiona Pods con este label
+      # debe coincidir exactamente con el label del template
+  template:  # plantilla para crear cada Pod
+    metadata:
+      labels:
+        app: trade-ingestion-service  # label que identifica estos Pods
+          # debe coincidir con matchLabels arriba
+        # y con el selector del Service
+    spec:
+      containers:
+        - name: trade-ingestion-service
+          image: trade-ingestion-service:1.0  # imagen Docker de tu servicio
+          # Kubernetes la busca en Docker Hub o registry privado
+          ports:
+            - containerPort: 8082  # puerto que expone tu Spring Boot dentro del Pod
+          envFrom:
+            # inyecta TODAS las variables del ConfigMap como variables de entorno
+            # Spring Boot las lee automáticamente al arrancar
+            - configMapRef:
+                name: trade-ingestion-config  # debe coincidir con metadata.name del configmap.yaml
+            # inyecta TODAS las variables del Secret como variables de entorno
+            # igual que ConfigMap pero para datos sensibles
+            - secretRef:
+                name: trade-ingestion-secrets  # debe coincidir con metadata.name del secret.yaml
+
+          livenessProbe:  # pregunta: ¿está vivo el Pod?
+            # si falla — Kubernetes mata el Pod y crea uno nuevo
+            httpGet:
+              path: /actuator/health  # endpoint de Spring Boot Actuator que ya tienes configurado
+              port: 8082
+            initialDelaySeconds: 60  # espera 60s antes del primer check
+              # Spring Boot con Kafka y Flyway tarda en arrancar
+            # sin este delay Kubernetes mata el Pod en bucle infinito
+            periodSeconds: 10  # chequea cada 10 segundos después del delay inicial
+
+          readinessProbe:  # pregunta: ¿está listo para recibir tráfico?
+            # si falla — Kubernetes deja de mandar tráfico pero NO mata el Pod
+            # espera a que se recupere — diferencia clave con liveness
+            httpGet:
+              path: /actuator/health
+              port: 8082
+            initialDelaySeconds: 30  # menos que liveness — readiness chequea antes
+            # para saber cuándo empezar a mandar tráfico
+            periodSeconds: 5  # chequea más frecuente que liveness — queremos saber rápido
+            # cuando el Pod está listo para recibir trabajo
