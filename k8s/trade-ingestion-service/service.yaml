@@ -1,0 +1,22 @@
+# service.yaml
+# Da una IP y DNS estable al Deployment
+# Sin Service, los Pods tienen IPs que cambian cada vez que mueren
+# Otros microservicios llaman a trade-ingestion-service:8082 — nunca a una IP directa
+apiVersion: v1
+kind: Service
+metadata:
+  name: trade-ingestion-service  # este nombre es el DNS dentro del cluster
+  # portfolio-service llama a trade-ingestion-service:8082
+  namespace: default
+spec:
+  selector:
+    app: trade-ingestion-service  # manda tráfico a Pods con este label
+      # debe coincidir exactamente con el label del Deployment
+    # si no coincide el Service manda tráfico a ningún lado
+  ports:
+    - port: 8082        # puerto en el que escucha el Service dentro del cluster
+      targetPort: 8082  # puerto del Pod al que redirige el tráfico
+      # pueden ser diferentes — Service en 80 apuntando al Pod en 8082
+  type: ClusterIP  # solo accesible dentro del cluster
+    # ningún usuario externo llega directamente aquí
+  # el tráfico externo entraría por un Ingress que llama al Service internamente
