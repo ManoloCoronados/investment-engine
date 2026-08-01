@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: pnl-calculator-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5434/pnl_db
+    username: pnl_user
+    password: pnl_pass
+    driver-class-name: org.postgresql.Driver
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: localhost:9092
+
+kafka:
+  topics:
+    portfolio-updated: portfolio.updated
+    prices-updated: prices.updated
+    pnl-calculated: pnl.calculated
+
+server:
+  port: 8085
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+
+logging:
+  level:
+    com.investmentengine.pnl: INFO
+    org.apache.kafka: WARN

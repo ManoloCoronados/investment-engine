@@ -1,0 +1,255 @@
+version: '3.9'
+
+# Red compartida — todos los servicios se ven entre sí por nombre
+networks:
+  investment-net:
+    driver: bridge
+
+services:
+
+  # ─────────────────────────────────────────
+  # ZOOKEEPER — coordinador de Kafka
+  # En producción real se usa KRaft (sin Zookeeper),
+  # pero para aprendizaje local Zookeeper es más simple de debuggear
+  # ─────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: zookeeper
+    networks:
+      - investment-net
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # KAFKA BROKER
+  # ─────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: kafka
+    networks:
+      - investment-net
+    ports:
+      # 9092 → para que tus microservicios Spring Boot (fuera de Docker) se conecten
+      # 29092 → para comunicación interna entre contenedores
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      # LISTENERS: define cómo Kafka acepta conexiones
+      # PLAINTEXT → interno entre contenedores (usa nombre DNS de Docker)
+      # PLAINTEXT_HOST → externo desde tu máquina (usa localhost)
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1       # solo 1 broker en local
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: false           # creamos topics explícitamente
+      KAFKA_LOG_RETENTION_HOURS: 168                  # retención de 7 días
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ─────────────────────────────────────────
+  # KAFKA UI — interfaz visual para inspeccionar topics y mensajes
+  # Acceso: http://localhost:8090
+  # ─────────────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    networks:
+      - investment-net
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: investment-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────
+  # KAFKA TOPICS — se crean al iniciar
+  # ─────────────────────────────────────────
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: kafka-init
+    networks:
+      - investment-net
+    depends_on:
+      kafka:
+        condition: service_healthy
+    # Crea todos los topics necesarios y termina
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      "
+      echo 'Creando topics de Kafka...'
+
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+        --topic trades.raw \
+        --partitions 3 \
+        --replication-factor 1
+
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+        --topic trades.processed \
+        --partitions 3 \
+        --replication-factor 1
+
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+        --topic portfolio.updated \
+        --partitions 3 \
+        --replication-factor 1
+
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+        --topic pnl.calculated \
+        --partitions 3 \
+        --replication-factor 1
+
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+        --topic prices.updated \
+        --partitions 1 \
+        --replication-factor 1
+
+      echo 'Topics creados exitosamente.'
+      kafka-topics --bootstrap-server kafka:29092 --list
+      "
+
+  # ─────────────────────────────────────────
+  # BASE DE DATOS — trade-ingestion-service
+  # Puerto 5432 (microservicio 1)
+  # ─────────────────────────────────────────
+  db-trade-ingestion:
+    image: postgres:16-alpine
+    container_name: db-trade-ingestion
+    networks:
+      - investment-net
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: trade_ingestion_db
+      POSTGRES_USER: trade_user
+      POSTGRES_PASSWORD: trade_pass
+    volumes:
+      - db-trade-ingestion-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trade_user -d trade_ingestion_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # BASE DE DATOS — portfolio-service
+  # Puerto 5433
+  # ─────────────────────────────────────────
+  db-portfolio:
+    image: postgres:16-alpine
+    container_name: db-portfolio
+    networks:
+      - investment-net
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: portfolio_db
+      POSTGRES_USER: portfolio_user
+      POSTGRES_PASSWORD: portfolio_pass
+    volumes:
+      - db-portfolio-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portfolio_user -d portfolio_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # BASE DE DATOS — pnl-calculator-service
+  # Puerto 5434
+  # ─────────────────────────────────────────
+  db-pnl:
+    image: postgres:16-alpine
+    container_name: db-pnl
+    networks:
+      - investment-net
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: pnl_db
+      POSTGRES_USER: pnl_user
+      POSTGRES_PASSWORD: pnl_pass
+    volumes:
+      - db-pnl-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pnl_user -d pnl_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # BASE DE DATOS — market-data-service
+  # Puerto 5435
+  # ─────────────────────────────────────────
+  db-market-data:
+    image: postgres:16-alpine
+    container_name: db-market-data
+    networks:
+      - investment-net
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_DB: market_data_db
+      POSTGRES_USER: market_user
+      POSTGRES_PASSWORD: market_pass
+    volumes:
+      - db-market-data-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U market_user -d market_data_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # BASE DE DATOS — reporting-service
+  # Puerto 5436
+  # ─────────────────────────────────────────
+  db-reporting:
+    image: postgres:16-alpine
+    container_name: db-reporting
+    networks:
+      - investment-net
+    ports:
+      - "5436:5432"
+    environment:
+      POSTGRES_DB: reporting_db
+      POSTGRES_USER: reporting_user
+      POSTGRES_PASSWORD: reporting_pass
+    volumes:
+      - db-reporting-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reporting_user -d reporting_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# Volúmenes persistentes — los datos sobreviven si reinicias Docker
+volumes:
+  db-trade-ingestion-data:
+  db-portfolio-data:
+  db-pnl-data:
+  db-market-data-data:
+  db-reporting-data:

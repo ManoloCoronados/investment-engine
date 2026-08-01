@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: trade-ingestion-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/trade_ingestion_db
+    username: trade_user
+    password: trade_pass
+    driver-class-name: org.postgresql.Driver
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: localhost:9092
+
+kafka:
+  topics:
+    trades-raw: trades.raw
+    trades-processed: trades.processed
+
+server:
+  port: 8082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+
+logging:
+  level:
+    com.investmentengine.ingestion: INFO
+    org.apache.kafka: WARN

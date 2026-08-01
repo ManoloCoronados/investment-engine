@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Identidad del proyecto padre -->
+    <groupId>com.investmentengine</groupId>
+    <artifactId>investment-engine</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>pom</packaging> <!-- IMPORTANTE: pom, no jar -->
+
+    <!-- Todos los módulos registrados aquí -->
+    <modules>
+        <module>exchange-simulator</module>
+        <module>trade-ingestion-service</module>
+        <module>portfolio-service</module>
+        <module>pnl-calculator-service</module>
+        <module>market-data-service</module>
+        <module>reporting-service</module>
+    </modules>
+
+    <!-- Hereda de Spring Boot para gestión automática de versiones -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
+
+    <properties>
+        <!-- Una sola vez para todos los módulos -->
+        <java.version>21</java.version>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Versiones centralizadas -->
+        <flyway.version>10.10.0</flyway.version>
+        <testcontainers.version>1.19.8</testcontainers.version>
+    </properties>
+
+    <!--
+        dependencyManagement NO agrega dependencias automáticamente.
+        Solo define las versiones que los módulos hijos PUEDEN usar.
+        Cada hijo declara lo que necesita sin especificar versión.
+    -->
+    <dependencyManagement>
+        <dependencies>
+
+            <!-- Kafka -->
+            <dependency>
+                <groupId>org.springframework.kafka</groupId>
+                <artifactId>spring-kafka</artifactId>
+                <version>3.2.3</version>
+            </dependency>
+
+            <!-- PostgreSQL driver -->
+            <dependency>
+                <groupId>org.postgresql</groupId>
+                <artifactId>postgresql</artifactId>
+                <version>42.7.3</version>
+            </dependency>
+
+            <!-- Flyway core -->
+            <dependency>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-core</artifactId>
+                <version>${flyway.version}</version>
+            </dependency>
+
+            <!-- Flyway soporte PostgreSQL específico -->
+            <dependency>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-database-postgresql</artifactId>
+                <version>${flyway.version}</version>
+            </dependency>
+
+            <!-- Testcontainers para tests de integración -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>postgresql</artifactId>
+                <version>${testcontainers.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>kafka</artifactId>
+                <version>${testcontainers.version}</version>
+                <scope>test</scope>
+            </dependency>
+
+        </dependencies>
+    </dependencyManagement>
+
+    <!-- Estas SÍ se aplican a TODOS los módulos automáticamente -->
+    <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>

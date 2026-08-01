@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: exchange-simulator
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      # Si el producer no puede conectar, falla rápido en lugar de colgar
+      properties:
+        request.timeout.ms: 30000
+        delivery.timeout.ms: 60000
+
+kafka:
+  topics:
+    trades-raw: trades.raw
+
+simulator:
+  trade:
+    # Intervalo en milisegundos entre trades generados
+    # Puedes cambiar este valor sin recompilar — solo reinicia el servicio
+    interval-ms: 2000
+
+server:
+  port: 8081
+
+# Logs — INFO en producción, DEBUG para ver cada trade generado
+logging:
+  level:
+    com.investmentengine.simulator: INFO
+    org.apache.kafka: WARN  # Kafka es muy verboso, lo silenciamos

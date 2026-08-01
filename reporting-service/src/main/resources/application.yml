@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: reporting-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5436/reporting_db
+    username: reporting_user
+    password: reporting_pass
+    driver-class-name: org.postgresql.Driver
+
+  flyway:
+    enabled: false
+
+  kafka:
+    bootstrap-servers: localhost:9092
+
+kafka:
+  topics:
+    trades-processed: trades.processed
+    portfolio-updated: portfolio.updated
+    pnl-calculated: pnl.calculated
+
+server:
+  port: 8086
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+
+logging:
+  level:
+    com.investmentengine.reporting: INFO
+    org.apache.kafka: WARN
