@@ -1,0 +1,67 @@
+# PVC para PostgreSQL — el disco donde viven los datos de trades
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-trade-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-trade-ingestion
+  namespace: default
+spec:
+  replicas: 1  # bases de datos siempre 1 réplica — la sincronización entre réplicas
+  # requiere configuración especial (Patroni, pgpool) que va más allá de este scope
+  selector:
+    matchLabels:
+      app: db-trade-ingestion
+  template:
+    metadata:
+      labels:
+        app: db-trade-ingestion
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine  # misma imagen que en tu docker-compose.yml
+          ports:
+            - containerPort: 5432
+          env:
+            # estas variables las lee PostgreSQL al arrancar para crear la BD inicial
+            - name: POSTGRES_DB
+              value: trade_ingestion_db
+            - name: POSTGRES_USER
+              value: trade_user
+            - name: POSTGRES_PASSWORD
+              value: trade_pass
+          volumeMounts:
+            # PostgreSQL guarda los datos en /var/lib/postgresql/data
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-trade-pvc
+
+---
+# Service de PostgreSQL — trade-ingestion-service lo llama por nombre db-trade-ingestion:5432
+# que es exactamente lo que definiste en el ConfigMap
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-trade-ingestion
+  namespace: default
+spec:
+  selector:
+    app: db-trade-ingestion
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP

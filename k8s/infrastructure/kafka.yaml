@@ -1,0 +1,76 @@
+# PersistentVolumeClaim — el disco externo donde Kafka guarda los mensajes
+# Si el Pod de Kafka muere, los mensajes siguen en este disco
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-pvc
+  namespace: default
+spec:
+  accessModes:
+    # ReadWriteOnce — solo un Pod puede escribir a la vez
+    # suficiente para Kafka con 1 réplica
+    - ReadWriteOnce
+  resources:
+    requests:
+      # 1GB de disco para guardar mensajes
+      # en producción serían cientos de GB
+      storage: 1Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.6.1
+          ports:
+            - containerPort: 9092  # puerto para consumers y producers dentro del cluster
+          env:
+            # dónde está Zookeeper — usa el nombre del Service que creamos arriba
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: zookeeper:2181
+            # listeners — cómo Kafka acepta conexiones
+            # PLAINTEXT es sin encriptación — suficiente para desarrollo
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: PLAINTEXT://kafka:9092
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: PLAINTEXT:PLAINTEXT
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"  # 1 réplica — en producción serían 3
+          volumeMounts:
+            # monta el PVC en el directorio donde Kafka guarda los datos
+            - name: kafka-storage
+              mountPath: /var/lib/kafka/data
+      volumes:
+        # conecta el PVC con el contenedor
+        - name: kafka-storage
+          persistentVolumeClaim:
+            claimName: kafka-pvc  # debe coincidir con metadata.name del PVC arriba
+
+---
+# Service de Kafka — tu trade-ingestion-service lo llama por nombre kafka:9092
+# que es exactamente lo que definiste en el ConfigMap
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: default
+spec:
+  selector:
+    app: kafka
+  ports:
+    - port: 9092
+      targetPort: 9092
+  type: ClusterIP
