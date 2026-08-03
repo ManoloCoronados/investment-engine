@@ -1,5 +1,5 @@
-# PersistentVolumeClaim — el disco externo donde Kafka guarda los mensajes
-# Si el Pod de Kafka muere, los mensajes siguen en este disco
+# PersistentVolumeClaim — disco persistente para mensajes de Kafka
+# Si el Pod muere, los mensajes siguen en este disco
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -7,13 +7,9 @@ metadata:
   namespace: default
 spec:
   accessModes:
-    # ReadWriteOnce — solo un Pod puede escribir a la vez
-    # suficiente para Kafka con 1 réplica
     - ReadWriteOnce
   resources:
     requests:
-      # 1GB de disco para guardar mensajes
-      # en producción serían cientos de GB
       storage: 1Gi
 
 ---
@@ -36,32 +32,43 @@ spec:
         - name: kafka
           image: confluentinc/cp-kafka:7.6.1
           ports:
-            - containerPort: 9092  # puerto para consumers y producers dentro del cluster
+            - containerPort: 9092
           env:
-            # dónde está Zookeeper — usa el nombre del Service que creamos arriba
+            # dónde está Zookeeper
             - name: KAFKA_ZOOKEEPER_CONNECT
-              value: zookeeper:2181
-            # listeners — cómo Kafka acepta conexiones
-            # PLAINTEXT es sin encriptación — suficiente para desarrollo
+              value: "zookeeper:2181"
+            # LISTENERS — en qué interfaz escucha Kafka dentro del Pod
+            # 0.0.0.0 significa "escucha en todas las interfaces" — obligatorio en Kubernetes
+            # sin esto Kafka solo escucha en localhost y nadie puede conectarse
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092"
+            # ADVERTISED_LISTENERS — qué dirección anuncia Kafka a los consumers y producers
+            # kafka:9092 es el nombre del Service — así otros Pods lo encuentran
             - name: KAFKA_ADVERTISED_LISTENERS
-              value: PLAINTEXT://kafka:9092
+              value: "PLAINTEXT://kafka:9092"
             - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
-              value: PLAINTEXT:PLAINTEXT
+              value: "PLAINTEXT:PLAINTEXT"
+            # necesario para que Kafka sepa qué listener usar entre brokers
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            # 1 réplica de cada topic — en producción serían 3
             - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
-              value: "1"  # 1 réplica — en producción serían 3
+              value: "1"
+            # directorio donde Kafka guarda los mensajes — debe coincidir con el mountPath
+            - name: KAFKA_LOG_DIRS
+              value: "/var/lib/kafka/data"
+            # permite crear topics automáticamente cuando un producer publica
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
           volumeMounts:
-            # monta el PVC en el directorio donde Kafka guarda los datos
             - name: kafka-storage
               mountPath: /var/lib/kafka/data
       volumes:
-        # conecta el PVC con el contenedor
         - name: kafka-storage
           persistentVolumeClaim:
-            claimName: kafka-pvc  # debe coincidir con metadata.name del PVC arriba
+            claimName: kafka-pvc
 
 ---
-# Service de Kafka — tu trade-ingestion-service lo llama por nombre kafka:9092
-# que es exactamente lo que definiste en el ConfigMap
 apiVersion: v1
 kind: Service
 metadata:
