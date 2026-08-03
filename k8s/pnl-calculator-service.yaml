@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pnl-config
+  namespace: default
+data:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://db-pnl:5432/pnl_db
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  SERVER_PORT: "8085"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pnl-secrets
+  namespace: default
+type: Opaque
+stringData:
+  SPRING_DATASOURCE_USERNAME: "pnl_user"
+  SPRING_DATASOURCE_PASSWORD: "pnl_pass"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pnl-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-pnl
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db-pnl
+  template:
+    metadata:
+      labels:
+        app: db-pnl
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: pnl_db
+            - name: POSTGRES_USER
+              value: pnl_user
+            - name: POSTGRES_PASSWORD
+              value: pnl_pass
+          volumeMounts:
+            - name: pnl-storage
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: pnl-storage
+          persistentVolumeClaim:
+            claimName: pnl-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-pnl
+  namespace: default
+spec:
+  selector:
+    app: db-pnl
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pnl-calculator-service
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pnl-calculator-service
+  template:
+    metadata:
+      labels:
+        app: pnl-calculator-service
+    spec:
+      containers:
+        - name: pnl-calculator-service
+          image: manuel123s/pnl-calculator-service:1.0
+          ports:
+            - containerPort: 8085
+          envFrom:
+            - configMapRef:
+                name: pnl-config
+            - secretRef:
+                name: pnl-secrets
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8085
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8085
+            initialDelaySeconds: 30
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pnl-calculator-service
+  namespace: default
+spec:
+  selector:
+    app: pnl-calculator-service
+  ports:
+    - port: 8085
+      targetPort: 8085
+  type: ClusterIP

@@ -1,0 +1,131 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reporting-config
+  namespace: default
+data:
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://db-reporting:5432/reporting_db"
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+  SERVER_PORT: "8086"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: reporting-secrets
+  namespace: default
+type: Opaque
+stringData:
+  SPRING_DATASOURCE_USERNAME: "reporting_user"
+  SPRING_DATASOURCE_PASSWORD: "reporting_pass"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: reporting-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-reporting
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db-reporting
+  template:
+    metadata:
+      labels:
+        app: db-reporting
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: reporting_db
+            - name: POSTGRES_USER
+              value: reporting_user
+            - name: POSTGRES_PASSWORD
+              value: reporting_pass
+          volumeMounts:
+            - name: reporting-storage
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: reporting-storage
+          persistentVolumeClaim:
+            claimName: reporting-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-reporting
+  namespace: default
+spec:
+  selector:
+    app: db-reporting
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reporting-service
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reporting-service
+  template:
+    metadata:
+      labels:
+        app: reporting-service
+    spec:
+      containers:
+        - name: reporting-service
+          image: manuel123s/reporting-service:1.0
+          ports:
+            - containerPort: 8086
+          envFrom:
+            - configMapRef:
+                name: reporting-config
+            - secretRef:
+                name: reporting-secrets
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8086
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8086
+            initialDelaySeconds: 30
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reporting-service
+  namespace: default
+spec:
+  selector:
+    app: reporting-service
+  ports:
+    - port: 8086
+      targetPort: 8086
+  type: NodePort  # NodePort para poder acceder desde tu PC con minikube service
+  # En producción sería ClusterIP con un Ingress enfrente
